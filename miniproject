@@ -1,0 +1,125 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage import data, color
+from skimage.io import imsave
+
+
+def encrypt_image(image, key):
+    """Encrypt the grayscale image using XOR with a pseudo-random matrix."""
+    np.random.seed(key)
+    random_matrix = np.random.randint(0, 256, image.shape, dtype=np.uint8)
+    encrypted_image = np.bitwise_xor(image, random_matrix)
+    return encrypted_image, random_matrix
+
+
+def decrypt_image(encrypted_image, random_matrix):
+    """Decrypt the image using the same pseudo-random matrix."""
+    decrypted_image = np.bitwise_xor(encrypted_image, random_matrix)
+    return decrypted_image
+
+
+def embed_data(image, data, block_size=4):
+    """Embed binary data into the encrypted image using Pixel Shifting Approach (PSA)."""
+    embedded_image = image.copy()
+    rows, cols = image.shape
+    data_index = 0
+
+    for i in range(0, rows, block_size):
+        for j in range(0, cols, block_size):
+            block = embedded_image[i:i + block_size, j:j + block_size].flatten()
+            if data_index < len(data):
+                shift_amount = int(data[data_index:data_index + 4], 2)
+                block = np.roll(block, shift_amount)
+                data_index += 4
+            embedded_image[i:i + block_size, j:j + block_size] = block.reshape((block_size, block_size))
+    return embedded_image
+
+
+def extract_data(image, random_matrix, block_size=4):
+    """Extract hidden data from the image and restore the original image."""
+    extracted_data = []
+    restored_image = image.copy()
+    rows, cols = image.shape
+
+    for i in range(0, rows, block_size):
+        for j in range(0, cols, block_size):
+            block = restored_image[i:i + block_size, j:j + block_size].flatten()
+            candidates = [np.roll(block, -shift) for shift in range(16)]
+            decrypted_candidates = [np.bitwise_xor(c, random_matrix[i:i + block_size, j:j + block_size].flatten())
+                                    for c in candidates]
+            smoothness_values = [np.sum(np.abs(np.diff(c.reshape(block_size, block_size), axis=0))) +
+                                 np.sum(np.abs(np.diff(c.reshape(block_size, block_size), axis=1)))
+                                 for c in decrypted_candidates]
+            best_index = np.argmin(smoothness_values)
+            extracted_data.append(f"{best_index:04b}")
+            restored_image[i:i + block_size, j:j + block_size] = candidates[best_index].reshape((block_size, block_size))
+
+    return "".join(extracted_data), restored_image
+
+
+# Example Usage
+if __name__ == "__main__":
+    # Load and preprocess the image
+    original_image = color.rgb2gray(data.astronaut()) * 255  # Grayscale approximation of the astronaut image
+    original_image = original_image.astype(np.uint8)
+
+    # Encryption
+    key = 42  # Shared encryption key
+    encrypted_image, random_matrix = encrypt_image(original_image, key)
+
+    # Data to hide (binary string)
+    hidden_data = "111000101011"
+
+    # Embed data
+    marked_image = embed_data(encrypted_image, hidden_data, block_size=4)
+
+    # Extract data and restore the image
+    extracted_data, restored_image = extract_data(marked_image, random_matrix, block_size=4)
+
+    # Decryption
+    decrypted_image = decrypt_image(marked_image, random_matrix)
+
+    # Plot and save the images
+    plt.figure(figsize=(15, 10))
+
+    # Original Image
+    plt.subplot(2, 3, 1)
+    plt.title("Original Image")
+    plt.imshow(original_image, cmap="gray")
+    plt.axis("off")
+    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\original_image.png", original_image)
+
+    # Encrypted Image
+    plt.subplot(2, 3, 2)
+    plt.title("Encrypted Image")
+    plt.imshow(encrypted_image, cmap="gray")
+    plt.axis("off")
+    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\encrypted_image.png", encrypted_image)
+
+    # Marked Image with Data
+    plt.subplot(2, 3, 3)
+    plt.title("Marked Image (Data Embedded)")
+    plt.imshow(marked_image, cmap="gray")
+    plt.axis("off")
+    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\marked_image.png", marked_image)
+
+    # Decrypted Image
+    plt.subplot(2, 3, 4)
+    plt.title("Decrypted Image")
+    plt.imshow(decrypted_image, cmap="gray")
+    plt.axis("off")
+    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\decrypted_image.png", decrypted_image)
+
+    # Restored Image
+    plt.subplot(2, 3, 5)
+    plt.title("Restored Image")
+    plt.imshow(restored_image, cmap="gray")
+    plt.axis("off")
+    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\restored_image.png", restored_image)
+
+    # Display hidden data
+    print(f"Hidden Data: {hidden_data}")
+    print(f"Extracted Data: {extracted_data}")
+
+    plt.tight_layout()
+    plt.show()
