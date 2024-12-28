@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import data, color
-from skimage.io import imsave
+from skimage import color
+from skimage.io import imsave, imread
+from tkinter import Tk, filedialog
 
 
 def encrypt_image(image, key):
@@ -23,103 +24,131 @@ def embed_data(image, data, block_size=4):
     embedded_image = image.copy()
     rows, cols = image.shape
     data_index = 0
+    shift_pattern = []  # Track the shift amount for each block
+
+    # Add a synchronization marker at the start (e.g., "1111")
+    sync_marker = "1111"
+    data = sync_marker + data
 
     for i in range(0, rows, block_size):
         for j in range(0, cols, block_size):
             block = embedded_image[i:i + block_size, j:j + block_size].flatten()
-            if data_index < len(data):
+            if block.size != block_size * block_size:
+                continue  # Skip incomplete blocks
+            if data_index + 4 <= len(data):  # Embed 4 bits per block
                 shift_amount = int(data[data_index:data_index + 4], 2)
                 block = np.roll(block, shift_amount)
+                shift_pattern.append(shift_amount)  # Store the shift amount used
                 data_index += 4
             embedded_image[i:i + block_size, j:j + block_size] = block.reshape((block_size, block_size))
-    return embedded_image
+    
+    return embedded_image, shift_pattern
 
 
-def extract_data(image, random_matrix, block_size=4):
-    """Extract hidden data from the image and restore the original image."""
+def extract_data(image, random_matrix, shift_pattern, block_size=4, expected_data_length=None):
+    """Extract hidden data from the image using Pixel Shifting Approach (PSA)."""
     extracted_data = []
     restored_image = image.copy()
     rows, cols = image.shape
+    bits_extracted = 0
+    sync_marker = "1111"  # Synchronization marker to detect the start of hidden data
+    found_sync_marker = False
 
     for i in range(0, rows, block_size):
         for j in range(0, cols, block_size):
             block = restored_image[i:i + block_size, j:j + block_size].flatten()
-            candidates = [np.roll(block, -shift) for shift in range(16)]
-            decrypted_candidates = [np.bitwise_xor(c, random_matrix[i:i + block_size, j:j + block_size].flatten())
-                                    for c in candidates]
-            smoothness_values = [np.sum(np.abs(np.diff(c.reshape(block_size, block_size), axis=0))) +
-                                 np.sum(np.abs(np.diff(c.reshape(block_size, block_size), axis=1)))
-                                 for c in decrypted_candidates]
-            best_index = np.argmin(smoothness_values)
-            extracted_data.append(f"{best_index:04b}")
-            restored_image[i:i + block_size, j:j + block_size] = candidates[best_index].reshape((block_size, block_size))
+            if block.size != block_size * block_size:
+                continue  # Skip incomplete blocks
 
-    return "".join(extracted_data), restored_image
+            # Get the corresponding shift value for this block
+            shift = shift_pattern.pop(0)
+
+            # Restore the block to its original form by reversing the shift
+            block = np.roll(block, -shift)
+            restored_image[i:i + block_size, j:j + block_size] = block.reshape((block_size, block_size))
+
+            # Extract the bits corresponding to the shift
+            extracted_bits = f"{shift:04b}"
+            extracted_data.append(extracted_bits)
+            bits_extracted += 4
+
+            if bits_extracted >= expected_data_length + 4:  # Including sync marker bits
+                break
+
+        if bits_extracted >= expected_data_length + 4:
+            break
+
+    if len(extracted_data) > 0:
+        # Join and remove the synchronization marker
+        extracted_bits = "".join(extracted_data)
+        start_index = extracted_bits.index(sync_marker) + len(sync_marker)
+        return extracted_bits[start_index:start_index + expected_data_length], restored_image
+    else:
+        print("Synchronization marker not found. Data extraction failed.")
+        return None, restored_image
 
 
 # Example Usage
 if __name__ == "__main__":
     # Load and preprocess the image
-    original_image = color.rgb2gray(data.astronaut()) * 255  # Grayscale approximation of the astronaut image
+    Tk().withdraw()
+    file_path = filedialog.askopenfilename(title="Select an Image",filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")])
+    if not file_path:
+        print("No file selected. Exiting.")
+        exit()
+
+    original_image = imread(file_path)
+    if len(original_image.shape) == 3:
+        original_image = color.rgb2gray(original_image) * 255
     original_image = original_image.astype(np.uint8)
 
     # Encryption
-    key = 42  # Shared encryption key
+    key = 42
     encrypted_image, random_matrix = encrypt_image(original_image, key)
 
-    # Data to hide (binary string)
-    hidden_data = "111000101011"
+    # Data to hide
+    hidden_data = "10101010"
 
     # Embed data
-    marked_image = embed_data(encrypted_image, hidden_data, block_size=4)
+    marked_image, shift_pattern = embed_data(encrypted_image, hidden_data, block_size=4)
 
-    # Extract data and restore the image
-    extracted_data, restored_image = extract_data(marked_image, random_matrix, block_size=4)
+    # Extract data
+    extracted_data, restored_image = extract_data(marked_image, random_matrix, shift_pattern, block_size=4, expected_data_length=len(hidden_data))
 
-    # Decryption
+    # Decrypt image
     decrypted_image = decrypt_image(marked_image, random_matrix)
+
+    # Display results
+    print(f"Hidden Data: {hidden_data}")
+    print(f"Extracted Data: {extracted_data}")
 
     # Plot and save the images
     plt.figure(figsize=(15, 10))
 
-    # Original Image
     plt.subplot(2, 3, 1)
     plt.title("Original Image")
     plt.imshow(original_image, cmap="gray")
     plt.axis("off")
-    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\original_image.png", original_image)
 
-    # Encrypted Image
     plt.subplot(2, 3, 2)
     plt.title("Encrypted Image")
     plt.imshow(encrypted_image, cmap="gray")
     plt.axis("off")
-    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\encrypted_image.png", encrypted_image)
 
-    # Marked Image with Data
     plt.subplot(2, 3, 3)
     plt.title("Marked Image (Data Embedded)")
     plt.imshow(marked_image, cmap="gray")
     plt.axis("off")
-    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\marked_image.png", marked_image)
 
-    # Decrypted Image
     plt.subplot(2, 3, 4)
     plt.title("Decrypted Image")
     plt.imshow(decrypted_image, cmap="gray")
     plt.axis("off")
-    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\decrypted_image.png", decrypted_image)
 
-    # Restored Image
     plt.subplot(2, 3, 5)
     plt.title("Restored Image")
     plt.imshow(restored_image, cmap="gray")
     plt.axis("off")
-    imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\restored_image.png", restored_image)
-
-    # Display hidden data
-    print(f"Hidden Data: {hidden_data}")
-    print(f"Extracted Data: {extracted_data}")
 
     plt.tight_layout()
     plt.show()
