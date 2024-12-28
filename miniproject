@@ -10,7 +10,7 @@ def encrypt_image(image, key):
     np.random.seed(key)
     random_matrix = np.random.randint(0, 256, image.shape, dtype=np.uint8)
     encrypted_image = np.bitwise_xor(image, random_matrix)
-    return encrypted_image, random_matrix
+    return encrypted_image
 
 
 def decrypt_image(encrypted_image, random_matrix):
@@ -90,65 +90,106 @@ def extract_data(image, random_matrix, shift_pattern, block_size=4, expected_dat
 
 # Example Usage
 if __name__ == "__main__":
-    # Load and preprocess the image
-    Tk().withdraw()
-    file_path = filedialog.askopenfilename(title="Select an Image",filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")])
-    if not file_path:
-        print("No file selected. Exiting.")
-        exit()
+    choice = input("Which operation do you wish to perform? encryption or decryption : ")
+    if choice == "encryption":
+        # Load and preprocess the image
+        Tk().withdraw()
+        file_path = filedialog.askopenfilename(title="Select an Image",filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")])
+        if not file_path:
+            print("No file selected. Exiting.")
+            exit()
 
-    original_image = imread(file_path)
-    if len(original_image.shape) == 3:
-        original_image = color.rgb2gray(original_image) * 255
-    original_image = original_image.astype(np.uint8)
+        original_image = imread(file_path)
+        if len(original_image.shape) == 3:
+            original_image = color.rgb2gray(original_image) * 255
+        original_image = original_image.astype(np.uint8)
 
-    # Encryption
-    key = 42
-    encrypted_image, random_matrix = encrypt_image(original_image, key)
+        # Encryption
+        key = int(input("Enter a key for encryption (3 digit) : "))
+        encrypted_image = encrypt_image(original_image, key)
 
-    # Data to hide
-    hidden_data = "10101010"
+        # Data to hide
+        hidden_data = input("Enter data to hide : ")
+        binary_data = ''.join(format(ord(char), '08b') for char in hidden_data)
 
-    # Embed data
-    marked_image, shift_pattern = embed_data(encrypted_image, hidden_data, block_size=4)
+        # Embed data
+        marked_image, shift_pattern = embed_data(encrypted_image, binary_data, block_size=4)
+        private_key = shift_pattern
+        private_key.append(len(binary_data))
+        private_key.append(key)
+        imsave(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\marked_image.png", marked_image)
+        np.save(r"C:\Users\aftha\OneDrive\Desktop\Afthab\Python\afthab\miniproject\Images\private_key.npy",private_key)
 
-    # Extract data
-    extracted_data, restored_image = extract_data(marked_image, random_matrix, shift_pattern, block_size=4, expected_data_length=len(hidden_data))
+        # Plot and save the images
+        plt.figure(figsize=(15, 10))
 
-    # Decrypt image
-    decrypted_image = decrypt_image(marked_image, random_matrix)
+        plt.subplot(1, 3, 1)
+        plt.title("Original Image")
+        plt.imshow(original_image, cmap="gray")
+        plt.axis("off")
 
-    # Display results
-    print(f"Hidden Data: {hidden_data}")
-    print(f"Extracted Data: {extracted_data}")
+        plt.subplot(1, 3, 2)
+        plt.title("Encrypted Image")
+        plt.imshow(encrypted_image, cmap="gray")
+        plt.axis("off")
 
-    # Plot and save the images
-    plt.figure(figsize=(15, 10))
+        plt.subplot(1, 3, 3)
+        plt.title("Marked Image (Data Embedded)")
+        plt.imshow(marked_image, cmap="gray")
+        plt.axis("off")
 
-    plt.subplot(2, 3, 1)
-    plt.title("Original Image")
-    plt.imshow(original_image, cmap="gray")
-    plt.axis("off")
+        plt.tight_layout()
+        plt.show()
 
-    plt.subplot(2, 3, 2)
-    plt.title("Encrypted Image")
-    plt.imshow(encrypted_image, cmap="gray")
-    plt.axis("off")
 
-    plt.subplot(2, 3, 3)
-    plt.title("Marked Image (Data Embedded)")
-    plt.imshow(marked_image, cmap="gray")
-    plt.axis("off")
+    elif choice == "decryption":
+        file_path = filedialog.askopenfilename(title="Select an Image",filetypes=[("Marked Image", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")])
+        if not file_path:
+            print("No file selected. Exiting.")
+            exit()
 
-    plt.subplot(2, 3, 4)
-    plt.title("Decrypted Image")
-    plt.imshow(decrypted_image, cmap="gray")
-    plt.axis("off")
+        marked_image = imread(file_path)
 
-    plt.subplot(2, 3, 5)
-    plt.title("Restored Image")
-    plt.imshow(restored_image, cmap="gray")
-    plt.axis("off")
+        file_path = filedialog.askopenfilename(title="Select an Image",filetypes=[("Private Key", "*.npy;*")])
+        if not file_path:
+            print("No file selected. Exiting.")
+            exit()
 
-    plt.tight_layout()
-    plt.show()
+        private_key = np.load(file_path)
+
+        # Generate random matrix
+        np.random.seed(private_key[len(private_key) - 1])
+        random_matrix = np.random.randint(0, 256, marked_image.shape, dtype=np.uint8)
+
+        shift_pattern = private_key[0:len(private_key)-2].tolist()
+
+        # Extract data
+        extracted_binary_data, restored_image = extract_data(marked_image, random_matrix, shift_pattern, block_size=4, expected_data_length=private_key[len(private_key) - 2])
+
+        extracted_data = ''.join(chr(int(extracted_binary_data[i:i+8], 2)) for i in range(0, len(extracted_binary_data), 8))
+
+        # Decrypt image
+        decrypted_image = decrypt_image(restored_image, random_matrix)
+
+        # Display results
+        print(f"Extracted Data: {extracted_data}")
+
+        plt.figure(figsize=(15, 5))
+
+        plt.subplot(1, 3, 1)
+        plt.title("Marked Image (Data Embedded)")
+        plt.imshow(marked_image, cmap="gray")
+        plt.axis("off")
+
+        plt.subplot(1, 3, 2)
+        plt.title("Restored Image")
+        plt.imshow(restored_image, cmap="gray")
+        plt.axis("off")
+
+        plt.subplot(1, 3, 3)
+        plt.title("Decrypted Image")
+        plt.imshow(decrypted_image, cmap="gray")
+        plt.axis("off")
+
+        plt.tight_layout()
+        plt.show()
